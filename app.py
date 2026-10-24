@@ -2,6 +2,8 @@ import os
 import glob
 import uuid
 import re
+import json
+import time
 import asyncio
 from typing import Optional
 from fastapi import FastAPI, HTTPException, Query, BackgroundTasks, Request
@@ -14,6 +16,58 @@ app = FastAPI(title="HyperDownloader")
 DOWNLOAD_DIR = "/tmp/downloads"
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 COOKIES_FILE = "/app/cookies.txt"
+
+def convert_to_netscape(content: str) -> str:
+    content = content.strip()
+    if not content:
+        return ""
+    
+    # If content looks like JSON, convert it
+    if content.startswith("[") or content.startswith("{"):
+        try:
+            data = json.loads(content)
+            if isinstance(data, dict):
+                data = [data]
+            
+            lines = [
+                "# Netscape HTTP Cookie File",
+                "# http://curl.haxx.se/rfc/cookie_spec.html",
+                "# This is a generated file! Do not edit."
+            ]
+            for c in data:
+                domain = c.get("domain", "")
+                if not domain:
+                    continue
+                include_sub = "TRUE" if domain.startswith(".") else "FALSE"
+                path = c.get("path", "/")
+                secure = "TRUE" if c.get("secure", False) else "FALSE"
+                expiry = c.get("expirationDate") or c.get("expires")
+                if expiry is None:
+                    expiry = int(time.time()) + 3600 * 24 * 365
+                else:
+                    expiry = int(float(expiry))
+                name = c.get("name", "")
+                value = c.get("value", "")
+                lines.append(f"{domain}\t{include_sub}\t{path}\t{secure}\t{expiry}\t{name}\t{value}")
+            return "\n".join(lines) + "\n"
+        except Exception:
+            pass
+
+    # Ensure header exists for Netscape format
+    if not content.startswith("# Netscape") and not content.startswith("# HTTP"):
+        return "# Netscape HTTP Cookie File\n" + content + "\n"
+    return content
+
+# Auto-fix cookies file if existing on startup
+if os.path.exists(COOKIES_FILE):
+    try:
+        with open(COOKIES_FILE, "r", encoding="utf-8") as f:
+            raw = f.read()
+        fixed = convert_to_netscape(raw)
+        with open(COOKIES_FILE, "w", encoding="utf-8") as f:
+            f.write(fixed)
+    except Exception:
+        pass
 
 def get_base_ydl_opts():
     opts = {
@@ -61,9 +115,10 @@ class CookieRequest(BaseModel):
 @app.post("/api/cookies")
 async def save_cookies(req: CookieRequest):
     try:
+        netscape_content = convert_to_netscape(req.cookies)
         with open(COOKIES_FILE, "w", encoding="utf-8") as f:
-            f.write(req.cookies.strip())
-        return {"status": "success", "message": "Cookies saved successfully!"}
+            f.write(netscape_content)
+        return {"status": "success", "message": "Cookies saved & converted to Netscape format successfully!"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -81,7 +136,6 @@ async def get_video_info(req: InfoRequest):
     ydl_opts = get_base_ydl_opts()
     
     try:
-        # Run extraction in threadpool so it doesn't block event loop
         loop = asyncio.get_event_loop()
         def extract():
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -92,7 +146,7 @@ async def get_video_info(req: InfoRequest):
         if "Failed to extract any player response" in err_msg or "Sign in to confirm" in err_msg:
             raise HTTPException(
                 status_code=400,
-                detail="YouTube requires cookies for this video on cloud servers. Please paste your cookies using the 'YouTube Cookies' button below."
+                detail="YouTube requires cookies for this video on cloud servers. Please paste your cookies using the 'YouTube Cookies' button above."
             )
         raise HTTPException(status_code=400, detail=f"Failed to fetch video: {err_msg}")
 
@@ -162,7 +216,6 @@ async def get_video_info(req: InfoRequest):
         })
     else:
         # YouTube / Instagram / Others
-        # Extract available video resolutions
         heights = set()
         for f in raw_formats:
             h = f.get("height")
@@ -248,7 +301,6 @@ async def download_media(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Download processing failed: {str(e)}")
 
-    # Locate the downloaded file
     matching = glob.glob(os.path.join(DOWNLOAD_DIR, f"{uid}_*"))
     if not matching:
         raise HTTPException(status_code=404, detail="File could not be prepared.")
@@ -257,7 +309,6 @@ async def download_media(
     actual_ext = os.path.splitext(filepath)[1]
     final_filename = f"{clean_title}{actual_ext}"
 
-    # Schedule cleanup after transmission
     background_tasks.add_task(cleanup_file, filepath)
 
     media_type = "audio/mpeg" if ext == "mp3" else "video/mp4"
@@ -383,38 +434,32 @@ async def serve_index():
     <!-- Video Preview & Resolutions Card -->
     <div id="resultCard" class="hidden w-full glass rounded-2xl p-6 glow">
       <div class="flex flex-col md:flex-row gap-6 items-start">
-        <!-- Thumbnail -->
         <div class="w-full md:w-72 aspect-video bg-slate-900 rounded-xl overflow-hidden relative shadow-lg shrink-0 border border-slate-800">
           <img id="videoThumb" src="" alt="Thumbnail" class="w-full h-full object-cover"/>
           <span id="videoDuration" class="absolute bottom-2 right-2 bg-black/80 backdrop-blur-md text-[11px] font-bold px-2 py-0.5 rounded text-white">00:00</span>
           <span id="videoPlatformBadge" class="absolute top-2 left-2 text-[10px] uppercase tracking-wider font-extrabold px-2 py-0.5 rounded bg-sky-500 text-white">YouTube</span>
         </div>
 
-        <!-- Video Metadata -->
         <div class="flex-1 w-full flex flex-col justify-between">
           <div>
             <h2 id="videoTitle" class="text-lg sm:text-xl font-bold text-white line-clamp-2 leading-snug mb-2">Video Title</h2>
             <p id="videoAuthor" class="text-xs sm:text-sm text-slate-400 mb-5">By Creator</p>
           </div>
 
-          <!-- Formats / Resolutions Title -->
           <div class="border-t border-slate-800/80 pt-4">
             <h3 class="text-xs uppercase tracking-wider font-bold text-slate-400 mb-3 flex items-center gap-1.5">
               <svg class="w-4 h-4 text-sky-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
               Select Download Resolution
             </h3>
 
-            <!-- Resolution Grid -->
-            <div id="formatList" class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-              <!-- Dynamically Populated -->
-            </div>
+            <div id="formatList" class="grid grid-cols-1 sm:grid-cols-2 gap-2.5"></div>
           </div>
         </div>
       </div>
     </div>
 
     <!-- Download Progress Toast -->
-    <div id="downloadToast" class="fixed bottom-6 right-6 hidden glass rounded-xl p-4 border border-sky-500/40 shadow-2xl flex items-center gap-3 z-50 animate-bounce">
+    <div id="downloadToast" class="fixed bottom-6 right-6 hidden glass rounded-xl p-4 border border-sky-500/40 shadow-2xl flex items-center gap-3 z-50">
       <div class="w-8 h-8 rounded-full bg-sky-500/20 text-sky-400 flex items-center justify-center shrink-0">
         <svg class="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"></path></svg>
       </div>
@@ -431,14 +476,17 @@ async def serve_index():
     <div class="glass max-w-lg w-full rounded-2xl p-6 border border-slate-700">
       <div class="flex items-center justify-between mb-4">
         <h3 class="text-lg font-bold text-white flex items-center gap-2">
-          <span>🍪</span> YouTube Cookies (Bypass Bot Check)
+          <span>🍪</span> YouTube Cookies
         </h3>
         <button onclick="toggleCookiesModal()" class="text-slate-400 hover:text-white">&times;</button>
       </div>
-      <p class="text-xs text-slate-400 mb-3">
-        If YouTube blocks datacenter servers with bot warnings, export your browser's <code class="text-sky-300">cookies.txt</code> (using extensions like "Get cookies.txt LOCALLY") and paste the text below:
+      <p class="text-xs text-slate-400 mb-2">
+        Paste your cookies below. <strong class="text-sky-300">Both JSON and Netscape formats are automatically supported!</strong>
       </p>
-      <textarea id="cookiesInput" rows="6" placeholder="# Netscape HTTP Cookie File&#10;.youtube.com..." class="w-full bg-slate-900 border border-slate-800 rounded-xl p-3 text-xs font-mono text-slate-300 focus:outline-none focus:border-sky-500 mb-4"></textarea>
+      <p class="text-[11px] text-slate-500 mb-3">
+        (Tip: In extensions like "Get cookies.txt LOCALLY", click Export or Copy and paste everything directly here.)
+      </p>
+      <textarea id="cookiesInput" rows="7" placeholder="Paste JSON or Netscape cookies here..." class="w-full bg-slate-900 border border-slate-800 rounded-xl p-3 text-xs font-mono text-slate-300 focus:outline-none focus:border-sky-500 mb-4"></textarea>
       <div class="flex justify-end gap-2">
         <button onclick="toggleCookiesModal()" class="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-300">Cancel</button>
         <button onclick="saveCookies()" class="px-4 py-2 rounded-lg btn-gradient text-xs font-bold text-white">Save Cookies</button>
@@ -478,7 +526,6 @@ async def serve_index():
       const errorMessage = document.getElementById('errorMessage');
       const resultCard = document.getElementById('resultCard');
 
-      // Reset states
       errorAlert.classList.add('hidden');
       resultCard.classList.add('hidden');
       btnText.textContent = 'Analyzing...';
@@ -573,7 +620,7 @@ async def serve_index():
           body: JSON.stringify({ cookies })
         });
         const data = await res.json();
-        alert(data.message || "Saved!");
+        alert(data.message || "Cookies saved successfully!");
         toggleCookiesModal();
       } catch (err) {
         alert("Failed to save cookies: " + err.message);
