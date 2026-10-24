@@ -1,10 +1,11 @@
 FROM python:3.11-slim
 
-# Install ffmpeg, curl, and ca-certificates
+# Install ffmpeg, curl, ca-certificates, and nodejs (required by yt-dlp for YouTube BotGuard JS challenge solving)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     curl \
     ca-certificates \
+    nodejs \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
