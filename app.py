@@ -74,8 +74,8 @@ def get_base_ydl_opts():
         'extract_flat': False,
         'extractor_args': {
             'youtube': {
-                'player_client': ['web', 'mweb', 'android', 'ios'],
-                'player_skip': ['webpage', 'configs']
+                'player_client': ['mweb', 'web_embedded', 'tv_embedded', 'android', 'ios'],
+                'player_skip': ['configs', 'webpage']
             }
         }
     }
@@ -261,8 +261,8 @@ async def download_media(
         'no_warnings': True,
         'extractor_args': {
             'youtube': {
-                'player_client': ['web', 'mweb', 'android', 'ios'],
-                'player_skip': ['webpage', 'configs']
+                'player_client': ['mweb', 'web_embedded', 'tv_embedded', 'android', 'ios'],
+                'player_skip': ['configs', 'webpage']
             }
         }
     }
