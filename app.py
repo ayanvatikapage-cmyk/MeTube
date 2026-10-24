@@ -22,7 +22,6 @@ def convert_to_netscape(content: str) -> str:
     if not content:
         return ""
     
-    # If content looks like JSON, convert it
     if content.startswith("[") or content.startswith("{"):
         try:
             data = json.loads(content)
@@ -53,12 +52,10 @@ def convert_to_netscape(content: str) -> str:
         except Exception:
             pass
 
-    # Ensure header exists for Netscape format
     if not content.startswith("# Netscape") and not content.startswith("# HTTP"):
         return "# Netscape HTTP Cookie File\n" + content + "\n"
     return content
 
-# Auto-fix cookies file if existing on startup
 if os.path.exists(COOKIES_FILE):
     try:
         with open(COOKIES_FILE, "r", encoding="utf-8") as f:
@@ -77,7 +74,7 @@ def get_base_ydl_opts():
         'extract_flat': False,
         'extractor_args': {
             'youtube': {
-                'player_client': ['android', 'ios', 'web'],
+                'player_client': ['web', 'mweb', 'android', 'ios'],
                 'player_skip': ['webpage', 'configs']
             }
         }
@@ -143,12 +140,7 @@ async def get_video_info(req: InfoRequest):
         info = await loop.run_in_executor(None, extract)
     except Exception as e:
         err_msg = str(e)
-        if "Failed to extract any player response" in err_msg or "Sign in to confirm" in err_msg:
-            raise HTTPException(
-                status_code=400,
-                detail="YouTube requires cookies for this video on cloud servers. Please paste your cookies using the 'YouTube Cookies' button above."
-            )
-        raise HTTPException(status_code=400, detail=f"Failed to fetch video: {err_msg}")
+        raise HTTPException(status_code=400, detail=f"{err_msg}")
 
     if not info:
         raise HTTPException(status_code=404, detail="Video details could not be found.")
@@ -159,7 +151,6 @@ async def get_video_info(req: InfoRequest):
     duration = format_duration(info.get("duration"))
     uploader = info.get("uploader") or info.get("channel") or info.get("creator") or "Unknown Creator"
 
-    # Identify platform
     platform = "Generic"
     if "youtube" in extractor or "youtu.be" in url:
         platform = "YouTube"
@@ -176,7 +167,6 @@ async def get_video_info(req: InfoRequest):
     format_options = []
 
     if platform == "TikTok":
-        # TikTok: Direct No-Watermark HD & Audio
         format_options.append({
             "label": "HD Video (No Watermark)",
             "quality": "Full HD",
@@ -192,7 +182,6 @@ async def get_video_info(req: InfoRequest):
             "format_id": "bestaudio"
         })
     elif platform == "Facebook":
-        # Facebook HD & SD
         format_options.append({
             "label": "HD Quality (1080p/720p)",
             "quality": "HD Video",
@@ -215,7 +204,6 @@ async def get_video_info(req: InfoRequest):
             "format_id": "bestaudio"
         })
     else:
-        # YouTube / Instagram / Others
         heights = set()
         for f in raw_formats:
             h = f.get("height")
@@ -273,7 +261,7 @@ async def download_media(
         'no_warnings': True,
         'extractor_args': {
             'youtube': {
-                'player_client': ['android', 'ios', 'web'],
+                'player_client': ['web', 'mweb', 'android', 'ios'],
                 'player_skip': ['webpage', 'configs']
             }
         }
@@ -342,11 +330,9 @@ async def serve_index():
 </head>
 <body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col relative overflow-x-hidden">
 
-  <!-- Ambient Glow Background -->
   <div class="absolute -top-40 left-1/2 -translate-x-1/2 w-[700px] h-[400px] bg-sky-500/20 blur-[130px] rounded-full pointer-events-none bg-glow"></div>
   <div class="absolute top-96 -left-32 w-80 h-80 bg-indigo-500/15 blur-[120px] rounded-full pointer-events-none"></div>
 
-  <!-- Header -->
   <header class="w-full border-b border-slate-800/80 glass sticky top-0 z-50">
     <div class="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between">
       <div class="flex items-center gap-3">
@@ -367,10 +353,8 @@ async def serve_index():
     </div>
   </header>
 
-  <!-- Main Container -->
   <main class="flex-1 max-w-4xl w-full mx-auto px-4 py-12 flex flex-col items-center">
     
-    <!-- Hero Title -->
     <div class="text-center mb-8 max-w-2xl">
       <h1 class="text-3xl sm:text-5xl font-extrabold tracking-tight mb-4">
         High Speed Video <span class="bg-gradient-to-r from-sky-400 to-indigo-400 bg-clip-text text-transparent">Downloader</span>
@@ -379,7 +363,6 @@ async def serve_index():
         Download videos directly in Full HD & 4K with maximum bandwidth. 100% private, zero ads, no third-party throttles.
       </p>
 
-      <!-- Supported Badges -->
       <div class="flex flex-wrap items-center justify-center gap-2 mt-5">
         <span class="text-xs px-3 py-1 rounded-full bg-red-500/10 text-red-400 border border-red-500/20 font-medium">YouTube</span>
         <span class="text-xs px-3 py-1 rounded-full bg-teal-500/10 text-teal-400 border border-teal-500/20 font-medium">TikTok (No Watermark)</span>
@@ -389,7 +372,6 @@ async def serve_index():
       </div>
     </div>
 
-    <!-- Search / Input Card -->
     <div class="w-full glass rounded-2xl p-2.5 sm:p-3 glow shadow-2xl mb-8">
       <form id="fetchForm" onsubmit="handleFetch(event)" class="flex flex-col sm:flex-row gap-2">
         <div class="relative flex-1">
@@ -425,13 +407,11 @@ async def serve_index():
       </form>
     </div>
 
-    <!-- Error Alert -->
     <div id="errorAlert" class="hidden w-full p-4 mb-6 rounded-xl bg-red-950/40 border border-red-500/30 text-red-300 text-sm flex items-start gap-3">
       <svg class="w-5 h-5 text-red-400 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
       <div id="errorMessage">An error occurred while fetching video.</div>
     </div>
 
-    <!-- Video Preview & Resolutions Card -->
     <div id="resultCard" class="hidden w-full glass rounded-2xl p-6 glow">
       <div class="flex flex-col md:flex-row gap-6 items-start">
         <div class="w-full md:w-72 aspect-video bg-slate-900 rounded-xl overflow-hidden relative shadow-lg shrink-0 border border-slate-800">
@@ -458,7 +438,6 @@ async def serve_index():
       </div>
     </div>
 
-    <!-- Download Progress Toast -->
     <div id="downloadToast" class="fixed bottom-6 right-6 hidden glass rounded-xl p-4 border border-sky-500/40 shadow-2xl flex items-center gap-3 z-50">
       <div class="w-8 h-8 rounded-full bg-sky-500/20 text-sky-400 flex items-center justify-center shrink-0">
         <svg class="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"></path></svg>
@@ -471,7 +450,6 @@ async def serve_index():
 
   </main>
 
-  <!-- Cookies Modal -->
   <div id="cookiesModal" class="fixed inset-0 bg-black/70 backdrop-blur-sm hidden z-50 flex items-center justify-center p-4">
     <div class="glass max-w-lg w-full rounded-2xl p-6 border border-slate-700">
       <div class="flex items-center justify-between mb-4">
@@ -483,9 +461,6 @@ async def serve_index():
       <p class="text-xs text-slate-400 mb-2">
         Paste your cookies below. <strong class="text-sky-300">Both JSON and Netscape formats are automatically supported!</strong>
       </p>
-      <p class="text-[11px] text-slate-500 mb-3">
-        (Tip: In extensions like "Get cookies.txt LOCALLY", click Export or Copy and paste everything directly here.)
-      </p>
       <textarea id="cookiesInput" rows="7" placeholder="Paste JSON or Netscape cookies here..." class="w-full bg-slate-900 border border-slate-800 rounded-xl p-3 text-xs font-mono text-slate-300 focus:outline-none focus:border-sky-500 mb-4"></textarea>
       <div class="flex justify-end gap-2">
         <button onclick="toggleCookiesModal()" class="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-300">Cancel</button>
@@ -494,7 +469,6 @@ async def serve_index():
     </div>
   </div>
 
-  <!-- Footer -->
   <footer class="border-t border-slate-800/80 py-6 text-center text-xs text-slate-500">
     UltraStream Downloader &bull; Hosted on Private Render Singapore Datacenter &bull; Fast & Secure
   </footer>
